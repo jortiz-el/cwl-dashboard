@@ -1,11 +1,19 @@
 import os
 import requests
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
 
 BASE_URL = "https://api.clashofclans.com/v1"
-API_KEY = os.getenv("COC_API_KEY")
+
+if "COC_API_TOKEN" in st.secrets:
+    API_KEY = st.secrets["COC_API_TOKEN"]
+else:
+    API_KEY = os.getenv("COC_API_TOKEN")
+
+if not API_KEY:
+    raise RuntimeError("COC_API_TOKEN not found in secrets or env vars")
 
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}"
