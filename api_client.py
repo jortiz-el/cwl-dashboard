@@ -27,6 +27,15 @@ def get_league_group_api(clan_tag):
     r = requests.get(url, headers=HEADERS)
     if r.status_code == 404:
         return None
+    
+    if r.status_code != 200:
+        raise Exception(
+            f"COC API ERROR\n"
+            f"Status: {r.status_code}\n"
+            f"URL: {r.url}\n"
+            f"Response: {r.text}"
+        )
+    
     r.raise_for_status()
     return r.json()
 
