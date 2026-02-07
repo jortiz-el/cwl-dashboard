@@ -1,0 +1,30 @@
+cwl-dashboard/
+├── backend/                  # 🔐 FastAPI (proxy a Clash of Clans)
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py           # FastAPI entrypoint
+│   │   ├── api_client.py     # Llamadas a Clash of Clans
+│   │   ├── cwl_logic.py      # Lógica CWL (reutilizada)
+│   │   ├── models.py         # (opcional) Pydantic models
+│   │   └── config.py         # Settings, env vars
+│   ├── requirements.txt
+│   └── .env.example          # Variables ejemplo (SIN secrets)
+│
+├── frontend/                 # 🎨 Streamlit
+│   ├── dashboard.py
+│   ├── requirements.txt
+│   └── .streamlit/
+│       └── secrets.toml.example
+│
+├── .gitignore
+├── README.md
+└── requirements-dev.txt      # (opcional) dev tools
+
+
+Usuario
+   ↓
+Streamlit (frontend)
+   ↓ HTTP
+FastAPI (backend en EC2, IP fija)
+   ↓
+Clash of Clans API

@@ -1,14 +1,37 @@
 import streamlit as st
 from datetime import datetime
-from cwl_logic import get_war_summary
 import pandas as pd
+import requests
+import os
 
-from cwl_logic import (
-    get_league_group,
-    find_all_my_wars,
-    parse_end_time,
-    get_attack_ranking_data
-)
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000") # local
+
+def get_full_summary_api(clan_tag):
+    r = requests.get(
+        f"{BACKEND_URL}/cwl/full-summary",
+        params={"clan_tag": clan_tag},
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()
+
+def get_war_summary_api(clan_tag):
+    r = requests.get(
+        f"{BACKEND_URL}/cwl/war-summary",
+        params={"clan_tag": clan_tag},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()
+
+def get_league_group_api(clan_tag):
+    r = requests.get(
+        f"{BACKEND_URL}/cwl/league-group",
+        params={"clan_tag": clan_tag},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()
 
 clans_list = [
     {"name": "GOD'S ACADEMY", "tag": "#2R9JPR82Y"},
@@ -59,44 +82,37 @@ for clan in selected_clans:
     #clan_tag = st.session_state["selected_clan"] #logica para seleccion de clanes desde botones
     st.header(f"🏰 Clan {clan_tag}")
 
-    group = get_league_group(clan_tag)
-    if not group:
-        st.warning("No hay CWL activa para este clan.")
-        continue
-
-    wars = find_all_my_wars(group, clan_tag)
+    data = get_full_summary_api(clan_tag)
+    wars = data.get("wars", [])
 
     if not wars:
-        st.warning("No se encontraron guerras.")
+        st.warning("No hay CWL activa para este clan.")
         continue
 
     # 🧠 Lógica LIVE vs ALL
     if show_all_rounds:
-        wars_to_show = sorted(wars, key=lambda x: x[1])
+        wars_to_show = sorted(wars, key=lambda w: w["round"])
         st.info("Mostrando TODAS las rondas")
     else:
-        active_wars = [(w, r) for w, r in wars if w["state"] == "inWar"]
-
-        if active_wars:
-            wars_to_show = active_wars
+        active = [w for w in wars if w["state"] == "inWar"]
+        if active:
+            wars_to_show = active
         else:
-            ended_wars = [(w, r) for w, r in wars if w["state"] == "warEnded"]
-
-            ended_wars.sort(
-                key=lambda x: parse_end_time(x[0]) or datetime.min,
-                reverse=True
-            )
-
-            wars_to_show = [ended_wars[0]]
+            ended = [w for w in wars if w["state"] == "warEnded"]
+            ended.sort(key=lambda w: w.get("end_time") or "", reverse=True)
+            wars_to_show = ended[:1]
             st.info("Mostrando última guerra finalizada")
 
     # 🖥️ Renderizar guerras
-    for war, round_idx in wars_to_show:
-        summary = get_war_summary(war, clan_tag)
-        me = war["clan"] if war["clan"]["tag"] == clan_tag else war["opponent"]
-        opp = war["opponent"] if me == war["clan"] else war["clan"]
-        me_badge = me.get("badgeUrls", {}).get("small")
-        opp_badge = opp.get("badgeUrls", {}).get("small")
+    for war in wars_to_show:
+        summary = war["summary"]
+
+        me_badge = war["me"]["badge"]
+        opp_badge = war["opp"]["badge"]
+
+        round_idx = war["round"]
+
+
 
         # Columnas más compactas
         col_round, col_me_name,  col_vs, col_opp_name = st.columns([1, 1, 1, 1])
@@ -122,7 +138,8 @@ for clan in selected_clans:
                 st.image(opp_badge, width=70)
 
         #st.subheader(f"🏆 Ronda {round_idx} — {summary['me_name']} 🆚 {summary['opp_name']}")
-        st.write(f"Estado: **{war['state']}**")
+        st.write(f"🛡️ Estado: **{war['state']}**") 
+        st.write(f"⏳ Tiempo restante: **{war['time_left']}**") 
 
         col1, col2, col3 = st.columns(3)
 
@@ -148,7 +165,7 @@ for clan in selected_clans:
             )
 
         # 📊 Ranking
-        ranking = get_attack_ranking_data(war, clan_tag)
+        ranking = war["ranking"]
         df = pd.DataFrame(ranking)
 
         def highlight_no_attack(row):

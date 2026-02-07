@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from api_client import get_league_group_api, get_war_api
+from .api_client import get_league_group_api, get_war_api
 
 def get_league_group(clan_tag):
     return get_league_group_api(clan_tag)
@@ -37,6 +37,19 @@ def parse_end_time(war):
     dt = datetime.strptime(end_time_str, "%Y%m%dT%H%M%S.000Z")
     return dt.replace(tzinfo=timezone.utc)
 
+def get_time_left(end_time_str):
+    # Formato: 20240205T123456.000Z
+    end_time = datetime.strptime(end_time_str, "%Y%m%dT%H%M%S.000Z")
+    end_time = end_time.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+
+    delta = end_time - now
+    if delta.total_seconds() < 0:
+        return "Finalizada"
+
+    hours, rem = divmod(int(delta.total_seconds()), 3600)
+    minutes, _ = divmod(rem, 60)
+    return f"{hours}h {minutes}m"
 
 def print_attack_ranking(war, clan_tag):
     if war["clan"]["tag"] == clan_tag:
@@ -158,4 +171,52 @@ def get_war_summary(war, clan_tag):
 
         "state": war.get("state"),
         "round": war.get("round")
+    }
+
+def get_full_cwl_summary(clan_tag: str):
+    group = get_league_group_api(clan_tag)
+    if not group:
+        return {"wars": []}
+
+    wars_found = find_all_my_wars(group, clan_tag)
+    wars_payload = []
+
+    for war, round_idx in wars_found:
+        # summary básico
+        summary = get_war_summary(war, clan_tag)
+
+        # ranking
+        ranking = get_attack_ranking_data(war, clan_tag)
+
+        # badges
+        if war["clan"]["tag"] == clan_tag:
+            me = war["clan"]
+            opp = war["opponent"]
+        else:
+            me = war["opponent"]
+            opp = war["clan"]
+
+        wars_payload.append({
+            "round": round_idx,
+            "state": war.get("state"),
+            "end_time": war.get("endTime"),
+            "time_left": get_time_left(war.get("endTime")),
+
+            "me": {
+                "name": me.get("name"),
+                "badge": me.get("badgeUrls", {}).get("small"),
+            },
+            "opp": {
+                "name": opp.get("name"),
+                "badge": opp.get("badgeUrls", {}).get("small"),
+            },
+
+            "summary": summary,
+            "ranking": ranking,
+        })
+
+    return {
+        "clan_tag": clan_tag,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "wars": wars_payload,
     }

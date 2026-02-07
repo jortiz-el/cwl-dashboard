@@ -4,7 +4,7 @@ import requests
 import argparse
 from dotenv import load_dotenv
 from datetime import datetime, timezone
-from cwl_logic import get_league_group, find_all_my_wars, parse_end_time, print_attack_ranking 
+from .backend.app.cwl_logic import get_league_group, find_all_my_wars, parse_end_time, print_attack_ranking 
 load_dotenv()
 
 BASE_URL = "https://api.clashofclans.com/v1"
