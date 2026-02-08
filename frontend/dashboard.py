@@ -6,14 +6,40 @@ import os
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000") # local
 
+import streamlit as st
+
 def get_full_summary_api(clan_tag):
-    r = requests.get(
-        f"{BACKEND_URL}/cwl/full-summary",
-        params={"clan_tag": clan_tag},
-        timeout=60,
-    )
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get(
+            f"{BACKEND_URL}/cwl/full-summary",
+            params={"clan_tag": clan_tag},
+            timeout=30,
+        )
+
+        if r.status_code == 403:
+            st.warning(f"🔒 El clan {clan_tag} es privado o no tienes acceso.")
+            return None
+
+        if r.status_code == 404:
+            st.warning(f"❌ Clan {clan_tag} no encontrado.")
+            return None
+
+        if r.status_code >= 500:
+            st.error(f"🚨 Error del servidor para clan {clan_tag}. es posible que el clan no este publico")
+            return None
+
+        r.raise_for_status()
+        return r.json()
+
+    except requests.exceptions.Timeout:
+        st.error(f"⏱️ Timeout al consultar clan {clan_tag}.")
+        return None
+
+    except requests.exceptions.RequestException as e:
+        st.error(f"⚠️ Error de red para clan {clan_tag}.")
+        st.caption(str(e))
+        return None
+
 
 def get_war_summary_api(clan_tag):
     r = requests.get(
@@ -91,6 +117,11 @@ for clan in selected_clans:
     st.header(f"🏰 Clan {clan_tag}")
 
     data = get_full_summary_api(clan_tag)
+
+    if not data:
+        st.info(f"⏭️ Saltando clan {clan['name']}")
+        continue
+
     wars = data.get("wars", [])
 
     if not wars:
