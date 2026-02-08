@@ -35,6 +35,14 @@ def get_league_group_api(clan_tag):
 
 clans_list = [
     {"name": "GOD'S ACADEMY", "tag": "#2R9JPR82Y"},
+    {"name": "LOS EXÓTICOS", "tag": "#2L8V8CPLV"},
+    {"name": "TITO TEAM", "tag": "#2CP9C2VJ0"},
+    {"name": "M1 Bellum", "tag": "#2RUQCC9RP"},
+    {"name": "M1 Coco Bellum ", "tag": "#2JL989J2C"},
+    {"name": "M2 Gods Empire", "tag": "#2GCVLQPVQ"},
+    {"name": "M2 No Somos Mancos 3", "tag": "#2R9J9Q029"},
+    {"name": "C3 Los Chunguitos", "tag": "#P0CJRRQ"},
+    {"name": "C3 NoSomosMancos", "tag": "#28U2CV0PV"},
     {"name": "⚡ASGARD⚡", "tag": "#8L8PPVYU8"},
     {"name": "PULP FICTION", "tag": "#2CPU9J20Q"}
 ]

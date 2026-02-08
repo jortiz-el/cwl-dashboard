@@ -25,6 +25,6 @@ Usuario
    ↓
 Streamlit (frontend)
    ↓ HTTP
-FastAPI (backend en EC2, IP fija)
+FastAPI (backend en AWS EC2, IP fija)
    ↓
 Clash of Clans API
