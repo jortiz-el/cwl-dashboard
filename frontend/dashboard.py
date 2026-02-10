@@ -326,7 +326,12 @@ for clan in selected_clans:
     hist_df = pd.DataFrame(rows)
 
     # 🔹 Ordenar por Ataques descendente
-    hist_df = hist_df.sort_values(by=["Ataques"], ascending=False)
+    #hist_df = hist_df.sort_values(by=["Ataques"], ascending=False)
+    
+    hist_df = hist_df.sort_values(
+        by=["⭐ Media", "% Media"],
+        ascending=[False, False]
+    )
     
     st.dataframe(hist_df, use_container_width=True)
 
