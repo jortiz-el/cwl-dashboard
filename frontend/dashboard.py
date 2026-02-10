@@ -3,6 +3,8 @@ from datetime import datetime
 import pandas as pd
 import requests
 import os
+import re
+from collections import defaultdict
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000") # local
 
@@ -13,7 +15,7 @@ def get_full_summary_api(clan_tag):
         r = requests.get(
             f"{BACKEND_URL}/cwl/full-summary",
             params={"clan_tag": clan_tag},
-            timeout=30,
+            timeout=60,
         )
 
         if r.status_code == 403:
@@ -45,7 +47,7 @@ def get_war_summary_api(clan_tag):
     r = requests.get(
         f"{BACKEND_URL}/cwl/war-summary",
         params={"clan_tag": clan_tag},
-        timeout=30,
+        timeout=60,
     )
     r.raise_for_status()
     return r.json()
@@ -54,7 +56,7 @@ def get_league_group_api(clan_tag):
     r = requests.get(
         f"{BACKEND_URL}/cwl/league-group",
         params={"clan_tag": clan_tag},
-        timeout=30,
+        timeout=60,
     )
     r.raise_for_status()
     return r.json()
@@ -77,6 +79,24 @@ CLAN_TAGS = [
     "#2R9JPR82Y",
     # añade más
 ]
+
+def parse_time_left_to_minutes(time_left_str):
+    """
+    Convierte '5h 12m' o '3h' o '45m' a minutos
+    """
+    hours = 0
+    minutes = 0
+
+    h_match = re.search(r"(\d+)h", time_left_str)
+    m_match = re.search(r"(\d+)m", time_left_str)
+
+    if h_match:
+        hours = int(h_match.group(1))
+
+    if m_match:
+        minutes = int(m_match.group(1))
+
+    return hours * 60 + minutes
 
 st.set_page_config(page_title="CWL Dashboard", layout="wide")
 st.title("🏆 CWL Dashboard")
@@ -122,11 +142,42 @@ for clan in selected_clans:
         st.info(f"⏭️ Saltando clan {clan['name']}")
         continue
 
-    wars = data.get("wars", [])
+    wars = data.get("wars", [])   
 
     if not wars:
         st.warning("No hay CWL activa para este clan.")
         continue
+
+    player_history = defaultdict(lambda: {
+        "attacks": 0,
+        "Estrellas": 0,
+        "% Destrucción": 0.0,
+        "fails": 0,
+        "no_attack": 0,
+        "rounds": 0,
+    })
+
+    for war_hist in wars:
+        for p in war_hist["ranking"]:
+            name = p["Jugador"]
+
+            player_history[name]["rounds"] += 1
+
+            if p["Atacó"]:
+                player_history[name]["attacks"] += 1
+                stars = p["_stars_sort"]  # número de estrellas real
+                destr = float(p["% Destrucción"].replace("%", ""))
+
+                player_history[name]["Estrellas"] += stars
+                player_history[name]["% Destrucción"] += destr
+
+                if stars == 0:
+                    player_history[name]["fails"] += 1
+            else:
+                player_history[name]["no_attack"] += 1
+
+
+
 
     # 🧠 Lógica LIVE vs ALL
     if show_all_rounds:
@@ -178,7 +229,22 @@ for clan in selected_clans:
 
         #st.subheader(f"🏆 Ronda {round_idx} — {summary['me_name']} 🆚 {summary['opp_name']}")
         st.write(f"🛡️ Estado: **{war['state']}**") 
-        st.write(f"⏳ Tiempo restante: **{war['time_left']}**") 
+        st.write(f"⏳ Tiempo restante: **{war['time_left']}**")
+        # ⏳ Barra de progreso de guerra (CWL = 24h por ronda)
+        if war.get("time_left") and war["state"] == "inWar":
+            try:
+                minutes_left = parse_time_left_to_minutes(war["time_left"])
+
+                TOTAL_WAR_MINUTES = 24 * 60  # CWL = 24h
+                minutes_elapsed = TOTAL_WAR_MINUTES - minutes_left
+
+                progress = min(max(minutes_elapsed / TOTAL_WAR_MINUTES, 0), 1)
+
+                st.progress(progress)
+                st.caption(f"⏳ Progreso de guerra: {int(progress * 100)}%")
+
+            except Exception as e:
+                st.caption("⏳ No se pudo calcular el progreso de la guerra.")
 
         col1, col2, col3 = st.columns(3)
 
@@ -230,6 +296,40 @@ for clan in selected_clans:
 
 
         st.dataframe(styled_df, use_container_width=True)
+    
+    # =========================
+    # 📈 HISTORIAL POR JUGADOR (CWL COMPLETA)
+    # =========================
+
+    st.subheader("📈 Historial por jugador (CWL completa)")
+
+    rows = []
+
+    for name, stats in player_history.items():
+        attacks = stats["attacks"]
+        rounds = stats["rounds"]
+
+        avg_stars = stats["Estrellas"] / attacks if attacks else 0
+        avg_destr = stats["% Destrucción"] / attacks if attacks else 0
+
+        rows.append({
+            "Jugador": name,
+            "Ataques": attacks,
+            "Rondas": rounds,
+            "No atacó": stats["no_attack"],
+            "⭐ Total": stats["Estrellas"],
+            "⭐ Media": round(avg_stars, 2),
+            "% Media": round(avg_destr, 2),
+            "0⭐ Fails": stats["fails"],
+        })
+
+    hist_df = pd.DataFrame(rows)
+
+    # 🔹 Ordenar por Ataques descendente
+    hist_df = hist_df.sort_values(by=["Ataques"], ascending=False)
+    
+    st.dataframe(hist_df, use_container_width=True)
+
 
 st.caption(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
 
