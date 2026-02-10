@@ -129,211 +129,216 @@ selected_clans = [clan for clan in clans_list if clan["name"] in selected]
 #    if cols[i].button(clan["name"]):
 #        st.session_state["selected_clan"] = clan["tag"]
 
+# Crear pestañas para cada clan
+tab_labels = [clan["name"] for clan in selected_clans]
+tabs = st.tabs(tab_labels)
 
 #for clan_tag in CLAN_TAGS:
-for clan in selected_clans:
-    clan_tag = clan['tag'] #logica para seleccion de clanes desde el dropdownlist
-    #clan_tag = st.session_state["selected_clan"] #logica para seleccion de clanes desde botones
-    st.header(f"🏰 Clan {clan_tag}")
+for i, clan in enumerate(selected_clans):
+    with tabs[i]:  # Todo lo que pongas aquí va dentro de la pestaña de ese clan
+    #for clan in selected_clans:
+        clan_tag = clan['tag'] #logica para seleccion de clanes desde el dropdownlist
+        #clan_tag = st.session_state["selected_clan"] #logica para seleccion de clanes desde botones
+        st.header(f"🏰 Clan {clan_tag}")
 
-    data = get_full_summary_api(clan_tag)
+        data = get_full_summary_api(clan_tag)
 
-    if not data:
-        st.info(f"⏭️ Saltando clan {clan['name']}")
-        continue
+        if not data:
+            st.info(f"⏭️ Saltando clan {clan['name']}")
+            continue
 
-    wars = data.get("wars", [])   
+        wars = data.get("wars", [])   
 
-    if not wars:
-        st.warning("No hay CWL activa para este clan.")
-        continue
+        if not wars:
+            st.warning("No hay CWL activa para este clan.")
+            continue
 
-    player_history = defaultdict(lambda: {
-        "attacks": 0,
-        "Estrellas": 0,
-        "% Destrucción": 0.0,
-        "fails": 0,
-        "no_attack": 0,
-        "rounds": 0,
-    })
-
-    for war_hist in wars:
-        for p in war_hist["ranking"]:
-            name = p["Jugador"]
-
-            player_history[name]["rounds"] += 1
-
-            if p["Atacó"]:
-                player_history[name]["attacks"] += 1
-                stars = p["_stars_sort"]  # número de estrellas real
-                destr = float(p["% Destrucción"].replace("%", ""))
-
-                player_history[name]["Estrellas"] += stars
-                player_history[name]["% Destrucción"] += destr
-
-                if stars == 0:
-                    player_history[name]["fails"] += 1
-            else:
-                player_history[name]["no_attack"] += 1
-
-
-
-
-    # 🧠 Lógica LIVE vs ALL
-    if show_all_rounds:
-        wars_to_show = sorted(wars, key=lambda w: w["round"])
-        st.info("Mostrando TODAS las rondas")
-    else:
-        active = [w for w in wars if w["state"] == "inWar"]
-        if active:
-            wars_to_show = active
-        else:
-            ended = [w for w in wars if w["state"] == "warEnded"]
-            ended.sort(key=lambda w: w.get("end_time") or "", reverse=True)
-            wars_to_show = ended[:1]
-            st.info("Mostrando última guerra finalizada")
-
-    # 🖥️ Renderizar guerras
-    for war in wars_to_show:
-        summary = war["summary"]
-
-        me_badge = war["me"]["badge"]
-        opp_badge = war["opp"]["badge"]
-
-        round_idx = war["round"]
-
-
-
-        # Columnas más compactas
-        col_round, col_me_name,  col_vs, col_opp_name = st.columns([1, 1, 1, 1])
-
-        # Texto Ronda 
-        with col_round:
-            st.markdown(f"<h2>🏆 Ronda {round_idx}</h2>", unsafe_allow_html=True)
-
-        # Nombre clan 
-        with col_me_name:
-            st.markdown(f"<h2>{summary['me_name']}</h2>", unsafe_allow_html=True)
-            if me_badge:
-                st.image(me_badge, width=70)
-
-        # VS centrado vertical
-        with col_vs:
-            st.markdown("<h2 style='text-align:center; margin:0;'>🆚</h2>", unsafe_allow_html=True)
-
-        # Nombre rival
-        with col_opp_name:
-            st.markdown(f"<h2>{summary['opp_name']}</h2>", unsafe_allow_html=True)
-            if opp_badge:
-                st.image(opp_badge, width=70)
-
-        #st.subheader(f"🏆 Ronda {round_idx} — {summary['me_name']} 🆚 {summary['opp_name']}")
-        st.write(f"🛡️ Estado: **{war['state']}**") 
-        st.write(f"⏳ Tiempo restante: **{war['time_left']}**")
-        # ⏳ Barra de progreso de guerra (CWL = 24h por ronda)
-        if war.get("time_left") and war["state"] == "inWar":
-            try:
-                minutes_left = parse_time_left_to_minutes(war["time_left"])
-
-                TOTAL_WAR_MINUTES = 24 * 60  # CWL = 24h
-                minutes_elapsed = TOTAL_WAR_MINUTES - minutes_left
-
-                progress = min(max(minutes_elapsed / TOTAL_WAR_MINUTES, 0), 1)
-
-                st.progress(progress)
-                st.caption(f"⏳ Progreso de guerra: {int(progress * 100)}%")
-
-            except Exception as e:
-                st.caption("⏳ No se pudo calcular el progreso de la guerra.")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric(
-                "⚔️ Ataques",
-                f"{summary['me_attacks']}/{summary['me_max_attacks']}",
-                f"{summary['opp_attacks']}/{summary['opp_max_attacks']}"
-            )
-
-        with col2:
-            st.metric(
-                "⭐ Estrellas",
-                f"{summary['me_stars']} - {summary['opp_stars']}",
-                f"{summary['me_stars'] - summary['opp_stars']:+}"
-            )
-
-        with col3:
-            st.metric(
-                "🏚️ Destrucción total",
-                f"{summary['me_destr']:.2f}% - {summary['opp_destr']:.2f}%",
-                f"{summary['me_destr'] - summary['opp_destr']:+.2f}%"
-            )
-
-        # 📊 Ranking
-        ranking = war["ranking"]
-        df = pd.DataFrame(ranking)
-
-        def highlight_no_attack(row):
-            styles = [""] * len(row)
-
-            if row["Atacó"] is False:
-                # Rojo suave, NO tapa el texto
-                styles = ["background-color: rgba(255, 0, 0, 0.15)"] * len(row)
-
-            return styles
-        
-        df = df.sort_values(
-            by=["_stars_sort", "_destr_sort"],
-            ascending=[False, False]
-        )
-
-        df = df.drop(columns=["_stars_sort", "_destr_sort"])
-
-        styled_df = (
-            df.style
-            .apply(highlight_no_attack, axis=1)
-        )
-
-
-        st.dataframe(styled_df, use_container_width=True)
-    
-    # =========================
-    # 📈 HISTORIAL POR JUGADOR (CWL COMPLETA)
-    # =========================
-
-    st.subheader("📈 Historial por jugador (CWL completa)")
-
-    rows = []
-
-    for name, stats in player_history.items():
-        attacks = stats["attacks"]
-        rounds = stats["rounds"]
-
-        avg_stars = stats["Estrellas"] / attacks if attacks else 0
-        avg_destr = stats["% Destrucción"] / attacks if attacks else 0
-
-        rows.append({
-            "Jugador": name,
-            "Ataques": attacks,
-            "Rondas": rounds,
-            "No atacó": stats["no_attack"],
-            "⭐ Total": stats["Estrellas"],
-            "⭐ Media": round(avg_stars, 2),
-            "% Media": round(avg_destr, 2),
-            "0⭐ Fails": stats["fails"],
+        player_history = defaultdict(lambda: {
+            "attacks": 0,
+            "Estrellas": 0,
+            "% Destrucción": 0.0,
+            "fails": 0,
+            "no_attack": 0,
+            "rounds": 0,
         })
 
-    hist_df = pd.DataFrame(rows)
+        for war_hist in wars:
+            for p in war_hist["ranking"]:
+                name = p["Jugador"]
 
-    # 🔹 Ordenar por Ataques descendente
-    #hist_df = hist_df.sort_values(by=["Ataques"], ascending=False)
-    
-    hist_df = hist_df.sort_values(
-        by=["⭐ Media", "% Media"],
-        ascending=[False, False]
-    )
-    
-    st.dataframe(hist_df, use_container_width=True)
+                player_history[name]["rounds"] += 1
+
+                if p["Atacó"]:
+                    player_history[name]["attacks"] += 1
+                    stars = p["_stars_sort"]  # número de estrellas real
+                    destr = float(p["% Destrucción"].replace("%", ""))
+
+                    player_history[name]["Estrellas"] += stars
+                    player_history[name]["% Destrucción"] += destr
+
+                    if stars == 0:
+                        player_history[name]["fails"] += 1
+                else:
+                    player_history[name]["no_attack"] += 1
+
+
+
+
+        # 🧠 Lógica LIVE vs ALL
+        if show_all_rounds:
+            wars_to_show = sorted(wars, key=lambda w: w["round"])
+            st.info("Mostrando TODAS las rondas")
+        else:
+            active = [w for w in wars if w["state"] == "inWar"]
+            if active:
+                wars_to_show = active
+            else:
+                ended = [w for w in wars if w["state"] == "warEnded"]
+                ended.sort(key=lambda w: w.get("end_time") or "", reverse=True)
+                wars_to_show = ended[:1]
+                st.info("Mostrando última guerra finalizada")
+
+        # 🖥️ Renderizar guerras
+        for war in wars_to_show:
+            summary = war["summary"]
+
+            me_badge = war["me"]["badge"]
+            opp_badge = war["opp"]["badge"]
+
+            round_idx = war["round"]
+
+
+
+            # Columnas más compactas
+            col_round, col_me_name,  col_vs, col_opp_name = st.columns([1, 1, 1, 1])
+
+            # Texto Ronda 
+            with col_round:
+                st.markdown(f"<h2>🏆 Ronda {round_idx}</h2>", unsafe_allow_html=True)
+
+            # Nombre clan 
+            with col_me_name:
+                st.markdown(f"<h2>{summary['me_name']}</h2>", unsafe_allow_html=True)
+                if me_badge:
+                    st.image(me_badge, width=70)
+
+            # VS centrado vertical
+            with col_vs:
+                st.markdown("<h2 style='text-align:center; margin:0;'>🆚</h2>", unsafe_allow_html=True)
+
+            # Nombre rival
+            with col_opp_name:
+                st.markdown(f"<h2>{summary['opp_name']}</h2>", unsafe_allow_html=True)
+                if opp_badge:
+                    st.image(opp_badge, width=70)
+
+            #st.subheader(f"🏆 Ronda {round_idx} — {summary['me_name']} 🆚 {summary['opp_name']}")
+            st.write(f"🛡️ Estado: **{war['state']}**") 
+            st.write(f"⏳ Tiempo restante: **{war['time_left']}**")
+            # ⏳ Barra de progreso de guerra (CWL = 24h por ronda)
+            if war.get("time_left") and war["state"] == "inWar":
+                try:
+                    minutes_left = parse_time_left_to_minutes(war["time_left"])
+
+                    TOTAL_WAR_MINUTES = 24 * 60  # CWL = 24h
+                    minutes_elapsed = TOTAL_WAR_MINUTES - minutes_left
+
+                    progress = min(max(minutes_elapsed / TOTAL_WAR_MINUTES, 0), 1)
+
+                    st.progress(progress)
+                    st.caption(f"⏳ Progreso de guerra: {int(progress * 100)}%")
+
+                except Exception as e:
+                    st.caption("⏳ No se pudo calcular el progreso de la guerra.")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric(
+                    "⚔️ Ataques",
+                    f"{summary['me_attacks']}/{summary['me_max_attacks']}",
+                    f"{summary['opp_attacks']}/{summary['opp_max_attacks']}"
+                )
+
+            with col2:
+                st.metric(
+                    "⭐ Estrellas",
+                    f"{summary['me_stars']} - {summary['opp_stars']}",
+                    f"{summary['me_stars'] - summary['opp_stars']:+}"
+                )
+
+            with col3:
+                st.metric(
+                    "🏚️ Destrucción total",
+                    f"{summary['me_destr']:.2f}% - {summary['opp_destr']:.2f}%",
+                    f"{summary['me_destr'] - summary['opp_destr']:+.2f}%"
+                )
+
+            # 📊 Ranking
+            ranking = war["ranking"]
+            df = pd.DataFrame(ranking)
+
+            def highlight_no_attack(row):
+                styles = [""] * len(row)
+
+                if row["Atacó"] is False:
+                    # Rojo suave, NO tapa el texto
+                    styles = ["background-color: rgba(255, 0, 0, 0.15)"] * len(row)
+
+                return styles
+            
+            df = df.sort_values(
+                by=["_stars_sort", "_destr_sort"],
+                ascending=[False, False]
+            )
+
+            df = df.drop(columns=["_stars_sort", "_destr_sort"])
+
+            styled_df = (
+                df.style
+                .apply(highlight_no_attack, axis=1)
+            )
+
+
+            st.dataframe(styled_df, use_container_width=True)
+        
+        # =========================
+        # 📈 HISTORIAL POR JUGADOR (CWL COMPLETA)
+        # =========================
+
+        st.subheader("📈 Historial por jugador (CWL completa)")
+
+        rows = []
+
+        for name, stats in player_history.items():
+            attacks = stats["attacks"]
+            rounds = stats["rounds"]
+
+            avg_stars = stats["Estrellas"] / attacks if attacks else 0
+            avg_destr = stats["% Destrucción"] / attacks if attacks else 0
+
+            rows.append({
+                "Jugador": name,
+                "Ataques": attacks,
+                "Rondas": rounds,
+                "No atacó": stats["no_attack"],
+                "⭐ Total": stats["Estrellas"],
+                "⭐ Media": round(avg_stars, 2),
+                "% Media": round(avg_destr, 2),
+                "0⭐ Fails": stats["fails"],
+            })
+
+        hist_df = pd.DataFrame(rows)
+
+        # 🔹 Ordenar por Ataques descendente
+        #hist_df = hist_df.sort_values(by=["Ataques"], ascending=False)
+
+        hist_df = hist_df.sort_values(
+            by=["⭐ Media", "% Media"],
+            ascending=[False, False]
+        )
+        
+        st.dataframe(hist_df, use_container_width=True)
 
 
 st.caption(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
