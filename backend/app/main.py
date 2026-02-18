@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from .cwl_logic import get_league_group, get_war_summary, get_full_cwl_summary
+from .cwl_logic import get_league_group, get_war_summary, get_full_cwl_summary, get_clan_info
 
 app = FastAPI()
 
@@ -18,4 +18,8 @@ def cwl_war_summary(clan_tag: str):
 @app.get("/cwl/full-summary")
 def cwl_full_summary(clan_tag: str):
     return get_full_cwl_summary(clan_tag)
+
+@app.get("/clan/info")
+def clan_info(clan_tag: str):
+    return get_clan_info(clan_tag)
 
