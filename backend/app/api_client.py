@@ -28,3 +28,9 @@ def get_clan_info_api(clan_tag: str):
         return {"error": "Clan no encontrado o privado"}
     data = r.json()
     return data
+
+def get_normal_summary_api(clan_tag: str):
+    url = f"{BASE_URL}/clans/{encode(clan_tag)}/currentwar"
+    r = requests.get(url, headers=HEADERS)
+    r.raise_for_status()
+    return r.json()

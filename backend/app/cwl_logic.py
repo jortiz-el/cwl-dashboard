@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from .api_client import get_league_group_api, get_war_api, get_clan_info_api
+from .api_client import get_league_group_api, get_war_api, get_clan_info_api, get_normal_summary_api
 from .utils import get_league_info
 from .leagues import CWL_LEAGUES
 import random
@@ -13,6 +13,9 @@ def get_war(war_tag: str):
 
 def get_clan_info(clan_tag: str):
     return get_clan_info_api(clan_tag)
+
+def get_normal_summary(clan_tag: str):
+    return get_normal_summary_api(clan_tag)
 
 def find_all_my_wars(group_json, clan_tag):
     wars_list = []
@@ -44,18 +47,28 @@ def parse_end_time(war):
     return dt.replace(tzinfo=timezone.utc)
 
 def get_time_left(end_time_str):
-    # Formato: 20240205T123456.000Z
-    end_time = datetime.strptime(end_time_str, "%Y%m%dT%H%M%S.000Z")
-    end_time = end_time.replace(tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
 
+    # 🛑 Si no hay tiempo (preparation / no war)
+    if not end_time_str:
+        return None
+
+    try:
+        end_time = datetime.strptime(end_time_str, "%Y%m%dT%H%M%S.000Z")
+        end_time = end_time.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+    now = datetime.now(timezone.utc)
     delta = end_time - now
-    if delta.total_seconds() < 0:
+
+    if delta.total_seconds() <= 0:
         return "Finalizada"
 
     hours, rem = divmod(int(delta.total_seconds()), 3600)
     minutes, _ = divmod(rem, 60)
+
     return f"{hours}h {minutes}m"
+
 
 def print_attack_ranking(war, clan_tag):
     if war["clan"]["tag"] == clan_tag:
@@ -102,10 +115,21 @@ def print_attack_ranking(war, clan_tag):
     print("-" * 60)
 
 def get_attack_ranking_data(war, clan_tag):
-    if war["clan"]["tag"] == clan_tag:
-        me = war["clan"]
+
+    clan_data = war.get("clan") or {}
+    opp_data = war.get("opponent") or {}
+
+    clan_tag_api = clan_data.get("tag")
+    opp_tag_api = opp_data.get("tag")
+
+    # 🛑 Si no hay tags, la guerra está en preparación o incompleta
+    if not clan_tag_api or not opp_tag_api:
+        return []
+
+    if clan_tag_api == clan_tag:
+        me = clan_data
     else:
-        me = war["opponent"]
+        me = opp_data
 
     rows = []
 
@@ -144,6 +168,66 @@ def get_attack_ranking_data(war, clan_tag):
     rows.sort(key=lambda x: (x["Estrellas"], x["% Destrucción"]), reverse=True)
     return rows
 
+def get_attack_ranking_data_normal(war, clan_tag):
+    clan_data = war.get("clan") or {}
+    opp_data = war.get("opponent") or {}
+
+    clan_tag_api = clan_data.get("tag")
+    opp_tag_api = opp_data.get("tag")
+
+    # 🛑 Guerra en preparación o inválida
+    if not clan_tag_api or not opp_tag_api:
+        return []
+
+    if clan_tag_api == clan_tag:
+        me = clan_data
+    else:
+        me = opp_data
+
+    rows = []
+
+    for m in me.get("members", []):
+        name = m["name"]
+        pos = m["mapPosition"]
+        attacks = m.get("attacks", [])
+
+        total_stars = 0
+        total_destr = 0
+        attack_count = len(attacks)
+
+        if attacks:
+            for a in attacks:
+                total_stars += a.get("stars", 0)
+                total_destr += a.get("destructionPercentage", 0)
+
+            attacked = True
+        else:
+            attacked = False
+
+
+        attack_icon = "⚔️" if attacked else "❌"
+        #star_icon = "⭐" * stars if stars > 0 else "⚫"
+
+        rows.append({
+            "Jugador": name,
+            "Pos": pos,
+
+            "Ataques": f"{attack_count}/2",
+
+            "Atacó": attacked,
+            "Estado": attack_icon,
+
+            "Estrellas": total_stars,
+            "_stars_sort": total_stars,
+
+            "% Destrucción": f"{total_destr:.2f}%",
+            "_destr_sort": total_destr,
+        })
+
+
+    rows.sort(key=lambda x: (x["Estrellas"], x["% Destrucción"]), reverse=True)
+    return rows
+
 def render_stars(n):
     """
     Devuelve un string con 3 estrellas: amarillas por las obtenidas, grises por las no obtenidas
@@ -155,31 +239,40 @@ def render_stars(n):
     return yellow * n + gray * (total_stars - n)
 
 def get_war_summary(war, clan_tag):
-    if war["clan"]["tag"] == clan_tag:
+    if war.get("clan", {}).get("tag") == clan_tag:
         me = war["clan"]
         opp = war["opponent"]
     else:
         me = war["opponent"]
         opp = war["clan"]
 
+    team_size = len(me.get("members", []))
+    attacks_per_member = war.get("attacksPerMember", 2)
+
+
     return {
-        "me_tag": me["tag"],
-        "opp_tag": opp["tag"],
-        "me_name": me["name"],
-        "opp_name": opp["name"],
+        "me_tag": me.get("tag"),
+        "opp_tag": opp.get("tag"),
+        "me_name": me.get("name"),
+        "opp_name": opp.get("name"),
+
+        "team_size": team_size,
+        "attacks_per_member": attacks_per_member,
+
         "me_attacks": me.get("attacks", 0),
-        "me_max_attacks": len(me.get("members", [])),
+        "me_max_attacks": team_size * attacks_per_member,
         "me_stars": me.get("stars", 0),
         "me_destr": me.get("destructionPercentage", 0),
 
         "opp_attacks": opp.get("attacks", 0),
-        "opp_max_attacks": len(opp.get("members", [])),
+        "opp_max_attacks": team_size * attacks_per_member,
         "opp_stars": opp.get("stars", 0),
         "opp_destr": opp.get("destructionPercentage", 0),
 
         "state": war.get("state"),
         "round": war.get("round")
     }
+
 
 def get_full_cwl_summary(clan_tag: str):
     group = get_league_group_api(clan_tag)
@@ -256,8 +349,14 @@ def get_full_cwl_summary(clan_tag: str):
         elif war_state == "inWar":
 
             prob_data = realtime_war_state(
-                me_stars, me_attacks_done, me_max_attacks,
-                opp_stars, opp_attacks_done, opp_max_attacks
+                me_stars,
+                me_attacks_done,
+                me_max_attacks,
+                opp_stars,
+                opp_attacks_done,
+                opp_max_attacks,
+                summary["team_size"],
+                summary["attacks_per_member"]
             )
 
         else:
@@ -300,6 +399,69 @@ def get_full_cwl_summary(clan_tag: str):
         "group_raw": group,
         "team_size": team_size,
     }
+
+def get_normal_war_summary(clan_tag):
+    war = get_normal_summary(clan_tag)
+
+    if not war:
+        return {
+            "state": "no_war",
+            "time_left": None,
+            "summary": None,
+            "ranking": [],
+            "win_state": None,
+            "me_bases": 0,
+            "opp_bases": 0
+        }
+
+    summary = get_war_summary(war, clan_tag)
+    ranking = get_attack_ranking_data_normal(war, clan_tag)
+
+    if war.get("clan", {}).get("tag") == clan_tag:
+        me = war["clan"]
+        opp = war["opponent"]
+    else:
+        me = war["opponent"]
+        opp = war["clan"]
+
+    me_bases = len(me.get("members", []))
+    opp_bases = len(opp.get("members", []))
+
+    win_state = realtime_war_state(
+        summary['me_stars'],
+        summary['me_attacks'],
+        summary['me_max_attacks'],
+        summary['opp_stars'],
+        summary['opp_attacks'],
+        summary['opp_max_attacks'],
+        summary['team_size'],
+        summary['attacks_per_member']
+    )
+
+
+    return {
+        "state": war.get("state"),
+        "time_left": get_time_left(war.get("endTime")),
+        "summary": summary,
+        "ranking": ranking,
+        "win_state": win_state,
+        "me_bases": me_bases,
+        "opp_bases": opp_bases,
+        "me": {
+            "name": me.get("name"),
+            "badge": me.get("badgeUrls", {}).get("small"),
+            "tag": me.get("tag")
+        },
+        "opp": {
+            "name": opp.get("name"),
+            "badge": opp.get("badgeUrls", {}).get("small"),
+            "tag": opp.get("tag")
+        }
+    }
+
+
+
+
 
 def calculate_group_strength(group_json, my_clan_tag, war_size):
     clans = group_json.get("clans", [])
@@ -378,32 +540,48 @@ def calculate_position_advantage(strength_data):
 def realtime_war_state(
     me_stars, me_attacks_done, me_max_attacks,
     opp_stars, opp_attacks_done, opp_max_attacks,
+    team_size,
+    attacks_per_member,
     star_distribution_me=None,
     star_distribution_opp=None,
     simulations=10000
 ):
-    """
-    Calcula estado real de guerra:
-    - Victoria asegurada
-    - Derrota asegurada
-    - Guerra abierta con probabilidad real (Monte Carlo)
-    """
 
-    # Distribución por defecto si no tenemos histórico real
-    # (puedes luego hacerlo dinámico por clan)
+    # =============================
+    # ⭐ Máximo real de estrellas
+    # =============================
+    max_possible_stars = team_size * 3
+
+    # =============================
+    # ⚔️ Ataques restantes reales
+    # =============================
+    me_left = max(0, me_max_attacks - me_attacks_done)
+    opp_left = max(0, opp_max_attacks - opp_attacks_done)
+
+    # =============================
+    # 🎲 Distribuciones por defecto
+    # =============================
     if star_distribution_me is None:
-        star_distribution_me = {0: 0.05, 1: 0.15, 2: 0.50, 3: 0.30}
+        star_distribution_me = {3: 0.35, 2: 0.30, 1: 0.20, 0: 0.15}
 
     if star_distribution_opp is None:
-        star_distribution_opp = {0: 0.10, 1: 0.20, 2: 0.45, 3: 0.25}
-
-    me_left = me_max_attacks - me_attacks_done
-    opp_left = opp_max_attacks - opp_attacks_done
+        star_distribution_opp = {3: 0.35, 2: 0.30, 1: 0.20, 0: 0.15}
 
     # =============================
-    # 🟢 VICTORIA MATEMÁTICA
+    # 🟢 CIERRES MATEMÁTICOS REALES
     # =============================
-    if me_stars > opp_stars + (opp_left * 3):
+
+    # Ya usamos todos los ataques
+    if me_left == 0 and opp_left == 0:
+        if me_stars > opp_stars:
+            return {"status": "finished_win", "win_probability": 100.0, "lose_probability": 0.0, "draw_probability": 0.0}
+        elif me_stars < opp_stars:
+            return {"status": "finished_loss", "win_probability": 0.0, "lose_probability": 100.0, "draw_probability": 0.0}
+        else:
+            return {"status": "finished_draw", "win_probability": 0.0, "lose_probability": 0.0, "draw_probability": 100.0}
+
+    # El rival NO puede alcanzarnos ni haciendo pleno
+    if opp_stars + (opp_left * 3) < me_stars:
         return {
             "status": "secured_win",
             "win_probability": 100.0,
@@ -411,10 +589,8 @@ def realtime_war_state(
             "draw_probability": 0.0
         }
 
-    # =============================
-    # 🔴 DERROTA MATEMÁTICA
-    # =============================
-    if opp_stars > me_stars + (me_left * 3):
+    # Nosotros NO podemos alcanzarlos ni haciendo pleno
+    if me_stars + (me_left * 3) < opp_stars:
         return {
             "status": "secured_loss",
             "win_probability": 0.0,
@@ -423,11 +599,55 @@ def realtime_war_state(
         }
 
     # =============================
-    # 🟡 GUERRA ABIERTA → MONTE CARLO
+    # 🎯 MONTE CARLO REAL
     # =============================
-
     wins = 0
     losses = 0
     draws = 0
+
+    for _ in range(simulations):
+
+        me_final = me_stars
+        opp_final = opp_stars
+
+        # Simular ataques míos
+        for _ in range(me_left):
+            r = random.random()
+            cumulative = 0
+            for stars, prob in star_distribution_me.items():
+                cumulative += prob
+                if r <= cumulative:
+                    me_final += stars
+                    break
+
+        # Simular ataques rival
+        for _ in range(opp_left):
+            r = random.random()
+            cumulative = 0
+            for stars, prob in star_distribution_opp.items():
+                cumulative += prob
+                if r <= cumulative:
+                    opp_final += stars
+                    break
+
+        # Limitar al máximo real
+        me_final = min(me_final, max_possible_stars)
+        opp_final = min(opp_final, max_possible_stars)
+
+        if me_final > opp_final:
+            wins += 1
+        elif me_final < opp_final:
+            losses += 1
+        else:
+            draws += 1
+
+    return {
+        "status": "open_war",
+        "win_probability": round((wins / simulations) * 100, 1),
+        "lose_probability": round((losses / simulations) * 100, 1),
+        "draw_probability": round((draws / simulations) * 100, 1),
+    }
+
+
 
 
