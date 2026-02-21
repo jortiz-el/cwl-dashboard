@@ -400,63 +400,45 @@ def get_full_cwl_summary(clan_tag: str):
         "team_size": team_size,
     }
 
-def get_normal_war_summary(clan_tag):
-    war = get_normal_summary(clan_tag)
-
-    if not war:
+def get_normal_war_summary(clan_tag: str):
+    war = get_normal_summary(clan_tag)  # esto ya llama a /currentwar → devuelve la guerra completa
+    if not war or war.get("state") == "notInWar":
         return {
-            "state": "no_war",
+            "state": "notInWar",
             "time_left": None,
             "summary": None,
             "ranking": [],
-            "win_state": None,
-            "me_bases": 0,
-            "opp_bases": 0
+            "me": None,
+            "opp": None,
+            "full_war_data": None  # para debug
         }
 
+    # Calculamos time_left
+    time_left = get_time_left(war.get("endTime"))
+
+    # Summary (lo mantenemos igual)
     summary = get_war_summary(war, clan_tag)
+
+    # Ranking (lo mantenemos, pero ahora usaremos el detalle real para bases)
     ranking = get_attack_ranking_data_normal(war, clan_tag)
 
-    if war.get("clan", {}).get("tag") == clan_tag:
-        me = war["clan"]
-        opp = war["opponent"]
-    else:
-        me = war["opponent"]
-        opp = war["clan"]
-
-    me_bases = len(me.get("members", []))
-    opp_bases = len(opp.get("members", []))
-
-    win_state = realtime_war_state(
-        summary['me_stars'],
-        summary['me_attacks'],
-        summary['me_max_attacks'],
-        summary['opp_stars'],
-        summary['opp_attacks'],
-        summary['opp_max_attacks'],
-        summary['team_size'],
-        summary['attacks_per_member']
-    )
-
-
+    # Devolvemos TODO el objeto war completo + lo que ya tenías
     return {
         "state": war.get("state"),
-        "time_left": get_time_left(war.get("endTime")),
+        "time_left": time_left,
         "summary": summary,
         "ranking": ranking,
-        "win_state": win_state,
-        "me_bases": me_bases,
-        "opp_bases": opp_bases,
         "me": {
-            "name": me.get("name"),
-            "badge": me.get("badgeUrls", {}).get("small"),
-            "tag": me.get("tag")
+            "name": war["clan"].get("name"),
+            "badge": war["clan"].get("badgeUrls", {}).get("small"),
+            "tag": war["clan"].get("tag")
         },
         "opp": {
-            "name": opp.get("name"),
-            "badge": opp.get("badgeUrls", {}).get("small"),
-            "tag": opp.get("tag")
-        }
+            "name": war["opponent"].get("name"),
+            "badge": war["opponent"].get("badgeUrls", {}).get("small"),
+            "tag": war["opponent"].get("tag")
+        },
+        "full_war_data": war  # ← ¡AQUÍ ESTÁ LA CLAVE! Enviamos la guerra completa
     }
 
 

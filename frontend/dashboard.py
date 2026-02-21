@@ -671,9 +671,9 @@ def get_star_probs(delta):
     if delta >= 2:
         return [0.00, 0.00, 0.00, 1.00]
     elif delta == 1:
-        return [0.00, 0.02, 0.03, 0.95]
+        return [0.00, 0.05, 0.10, 0.85]   # menos 3★ que antes
     elif delta == 0:
-        return [0.05, 0.15, 0.30, 0.50]
+        return [0.10, 0.20, 0.30, 0.40]   # solo 40% 3★ en mirror (realista en guerras cerradas)
     elif delta == -1:
         return [0.15, 0.30, 0.40, 0.15]
     elif delta == -2:
@@ -724,7 +724,7 @@ def simulate_additional_stars(att_ths_list, bases_list):
         total_add += add
     return total_add
 
-def estimate_normal_war_probs(opp_bases, me_bases, my_att_ths, opp_att_ths, num_sims=8000):
+def estimate_normal_war_probs(opp_bases, me_bases, my_att_ths, opp_att_ths,my_stars_current,opp_stars_current, num_sims=8000):
     """Monte Carlo principal: % win/draw/lose"""
     my_current_total = sum(b['stars'] for b in opp_bases)
     opp_current_total = sum(b['stars'] for b in me_bases)
@@ -735,16 +735,24 @@ def estimate_normal_war_probs(opp_bases, me_bases, my_att_ths, opp_att_ths, num_
     
     wins = ties = losses = 0
     for _ in range(num_sims):
-        my_add = simulate_additional_stars(my_att_ths[:], opp_bases_rem[:])  # copia para cada sim
+        my_add = simulate_additional_stars(my_att_ths[:], opp_bases_rem[:])
         opp_add = simulate_additional_stars(opp_att_ths[:], me_bases_rem[:])
-        final_my = my_current_total + my_add
-        final_opp = opp_current_total + opp_add
+        
+        # Pequeño ruido para evitar empates forzados (simula fallos impredecibles)
+        my_add += random.uniform(-0.5, 0.5)
+        opp_add += random.uniform(-0.5, 0.5)
+        
+        final_my = my_stars_current + my_add
+        final_opp = opp_stars_current + opp_add
+
+        
         if final_my > final_opp:
             wins += 1
         elif final_my < final_opp:
             losses += 1
         else:
             ties += 1
+
     
     total = num_sims
     return {
@@ -777,7 +785,12 @@ def render_normal_war_tab(clan):
         st.warning("No se pudo cargar el resumen de guerra.")
         return
 
-    
+    full_war = war.get("full_war_data")
+    if not full_war or "clan" not in full_war or "opponent" not in full_war:
+        st.error("Error grave: El backend no devolvió la guerra completa con 'full_war_data'. Contacta al dev del backend.")
+        st.json(war)  # muestra todo para debug
+        return
+
     me_badge = war["me"]["badge"]
     opp_badge = war["opp"]["badge"]
     # Columnas para la presentación de la guerra
@@ -911,65 +924,146 @@ def render_normal_war_tab(clan):
 
     # Calcula atacantes restantes
     me_attackers = []
-    for m in war.get("me", {}).get("members", []):
-        th = m.get("townHallLevel", 0)
-        attacks_done = len(m.get("attacks", []))
-        attacks_left = max(0, min(2, len(opp_bases)) - attacks_done) 
-        me_attackers.extend([th] * attacks_left)
+    for member in full_war["clan"]["members"]:
+        attacks_made = len(member.get("attacks", []))
+        attacks_left = max(0, 2 - attacks_made)
+        if attacks_left > 0:
+            me_attackers.extend([member.get("townHallLevel", 12)] * attacks_left)
 
     opp_attackers = []
-    for m in war.get("opp", {}).get("members", []):
-        th = m.get("townHallLevel", 0)
-        attacks_done = len(m.get("attacks", []))
-        attacks_left = max(0, min(2, len(opp_bases)) - attacks_done) 
-        opp_attackers.extend([th] * attacks_left)
+    for member in full_war["opponent"]["members"]:
+        attacks_made = len(member.get("attacks", []))
+        attacks_left = max(0, 2 - attacks_made)
+        if attacks_left > 0:
+            opp_attackers.extend([member.get("townHallLevel", 12)] * attacks_left)
 
 
-     # =====================================
+    # =====================================
     # NUESTRAS BASES (atacadas por el rival)
     # =====================================
     me_bases = []
-    for m in war.get("me", {}).get("members", []):
-        defender_tag = m.get("tag")
-        stars_received = 0
-        seen_attacks = set()
-        
-        for opp in war.get("opp", {}).get("members", []):
-            for atk in opp.get("attacks", []):
-                if atk.get("defenderTag") == defender_tag:
-                    attack_id = atk.get("attackOrder") or id(atk)
-                    if attack_id not in seen_attacks:
-                        stars_received += atk.get("stars", 0)
-                        seen_attacks.add(attack_id)
-        
-        stars_received = min(3, stars_received)
+    me_base_stars = {}  # tag → estrellas (capeadas en cada suma)
+
+    # Recolectamos y capeamos EN CADA ATAQUE
+    for opp_member in full_war["opponent"]["members"]:
+        for atk in opp_member.get("attacks", []):
+            def_tag = atk.get("defenderTag")
+            if def_tag:
+                if def_tag not in me_base_stars:
+                    me_base_stars[def_tag] = 0
+                # Capeo inmediato: nunca suma más de 3 en total
+                added = atk.get("stars", 0)
+                me_base_stars[def_tag] = min(3, me_base_stars[def_tag] + added)
+
+    # Construimos la lista oficial (solo miembros reales del clan)
+    for member in full_war["clan"]["members"]:
+        tag = member["tag"]
+        stars_received = me_base_stars.get(tag, 0)
         me_bases.append({
             "stars": stars_received,
-            "th": m.get("townHallLevel", 0)
+            "th": member.get("townHallLevel", 12)
         })
+
+    # Forzamos ajuste global si hay desfase (seguridad extra)
+    calculated_me = sum(b['stars'] for b in me_bases)
+    expected_me = summary['opp_stars']
+    if calculated_me != expected_me:
+        #st.warning(f"Desfase detectado en nuestras bases: calculado {calculated_me} vs esperado {expected_me}. Ajustando enteros...")
+        diff = expected_me - calculated_me  # puede ser positivo o negativo
+        if diff != 0:
+            # Ordenamos bases con estrellas >0 para ajustar primero las que tienen más margen
+            adjustable_bases = [b for b in me_bases if b['stars'] < 3 and b['stars'] > 0]
+            adjustable_bases.sort(key=lambda b: b['stars'], reverse=(diff > 0))  # si diff >0, subimos las bajas primero
+            
+            abs_diff = abs(diff)
+            adjusted = 0
+            i = 0
+            while adjusted < abs_diff and i < len(adjustable_bases):
+                b = adjustable_bases[i]
+                if diff > 0:  # necesitamos subir
+                    if b['stars'] < 3:
+                        b['stars'] += 1
+                        adjusted += 1
+                elif diff < 0:  # necesitamos bajar
+                    if b['stars'] > 0:
+                        b['stars'] -= 1
+                        adjusted += 1
+                i += 1
+            
+            # Si aún queda diff (raro), ajustamos en cualquier base
+            remaining = abs_diff - adjusted
+            if remaining > 0:
+                for b in me_bases:
+                    if diff > 0 and b['stars'] < 3:
+                        b['stars'] += 1
+                        remaining -= 1
+                        if remaining == 0: break
+                    elif diff < 0 and b['stars'] > 0:
+                        b['stars'] -= 1
+                        remaining -= 1
+                        if remaining == 0: break
 
     # =====================================
     # BASES ENEMIGAS (atacadas por nosotros)
     # =====================================
     opp_bases = []
-    for m in war.get("opp", {}).get("members", []):
-        defender_tag = m.get("tag")
-        stars_received = 0
-        seen_attacks = set()
-        
-        for me_m in war.get("me", {}).get("members", []):
-            for atk in me_m.get("attacks", []):
-                if atk.get("defenderTag") == defender_tag:
-                    attack_id = atk.get("attackOrder") or id(atk)
-                    if attack_id not in seen_attacks:
-                        stars_received += atk.get("stars", 0)
-                        seen_attacks.add(attack_id)
-        
-        stars_received = min(3, stars_received)
+    opp_base_stars = {}
+
+    for my_member in full_war["clan"]["members"]:
+        for atk in my_member.get("attacks", []):
+            def_tag = atk.get("defenderTag")
+            if def_tag:
+                if def_tag not in opp_base_stars:
+                    opp_base_stars[def_tag] = 0
+                added = atk.get("stars", 0)
+                opp_base_stars[def_tag] = min(3, opp_base_stars[def_tag] + added)
+
+    for member in full_war["opponent"]["members"]:
+        tag = member["tag"]
+        stars_received = opp_base_stars.get(tag, 0)
         opp_bases.append({
             "stars": stars_received,
-            "th": m.get("townHallLevel", 0)
+            "th": member.get("townHallLevel", 12)
         })
+
+    calculated_opp = sum(b['stars'] for b in opp_bases)
+    expected_opp = summary['me_stars']
+    if calculated_opp != expected_opp:
+        #st.warning(f"Desfase detectado en bases enemigas: calculado {calculated_opp} vs esperado {expected_opp}. Ajustando enteros...")
+        diff = expected_opp - calculated_opp
+        if diff != 0:
+            adjustable_bases = [b for b in opp_bases if b['stars'] < 3 and b['stars'] > 0]
+            adjustable_bases.sort(key=lambda b: b['stars'], reverse=(diff > 0))
+            
+            abs_diff = abs(diff)
+            adjusted = 0
+            i = 0
+            while adjusted < abs_diff and i < len(adjustable_bases):
+                b = adjustable_bases[i]
+                if diff > 0 and b['stars'] < 3:
+                    b['stars'] += 1
+                    adjusted += 1
+                elif diff < 0 and b['stars'] > 0:
+                    b['stars'] -= 1
+                    adjusted += 1
+                i += 1
+            
+            remaining = abs_diff - adjusted
+            if remaining > 0:
+                for b in opp_bases:
+                    if diff > 0 and b['stars'] < 3:
+                        b['stars'] += 1
+                        remaining -= 1
+                        if remaining == 0: break
+                    elif diff < 0 and b['stars'] > 0:
+                        b['stars'] -= 1
+                        remaining -= 1
+                        if remaining == 0: break
+
+    calculated_me_stars = sum(b['stars'] for b in me_bases)
+    calculated_opp_stars = sum(b['stars'] for b in opp_bases)
+
+    #st.caption(f"Debug: objeto war = {war}")
 
     # =============================
     # 🎯 LÓGICA DE PROBABILIDADES REALISTA (Monte Carlo con targeting inteligente)
@@ -987,8 +1081,8 @@ def render_normal_war_tab(clan):
     my_rem_max = sum(3 - b['stars'] for b in opp_bases)   # lo que aún podemos sacar nosotros
     opp_rem_max = sum(3 - b['stars'] for b in me_bases)   # lo que aún puede sacar el rival
     
-    my_max_total = my_stars_current + min(me_attacks_left * 3, my_rem_max)
-    opp_max_total = opp_stars_current + min(opp_attacks_left * 3, opp_rem_max)
+    my_max_total = my_stars_current + min(me_attacks_left * 2.2, my_rem_max)
+    opp_max_total = opp_stars_current + min(opp_attacks_left * 2.2, opp_rem_max)
     
     # =============================
     # RESULTADO FINAL O MATEMÁTICO
@@ -1020,25 +1114,27 @@ def render_normal_war_tab(clan):
         else:
             st.error("🔴 Derrota matemáticamente asegurada")
             display_result = True
-    
+
     # =============================
     # SIMULACIÓN SI LA GUERRA SIGUE ABIERTA
     # =============================
     if not display_result:
         if war_state == "preparation":
             st.info("🛠️ Guerra en preparación — simulación no disponible aún")
-        elif war_state == "inWar":
+        elif war_state == "inWar":           
             with st.spinner("🔄 Simulando miles de escenarios posibles..."):
                 result = estimate_normal_war_probs(
                     opp_bases=opp_bases,       # bases del rival (donde atacamos nosotros)
                     me_bases=me_bases,         # nuestras bases (donde ataca el rival)
                     my_att_ths=me_attackers,   # THs de nuestros ataques restantes
                     opp_att_ths=opp_attackers, # THs de los ataques restantes del rival
-                    num_sims=8000              # puedes subir a 12000 si quieres más precisión
+                    my_stars_current=my_stars_current,     
+                    opp_stars_current=opp_stars_current,   
+                    num_sims=8000             # puedes subir a 12000 si quieres más precisión                    
                 )
             
             st.warning(
-                f"🟡 Guerra en curso (Simulación realista)\n"
+                f"🟡 Guerra en curso (Simulación - no determina el resultado final de la guerra)\n"
                 f"🎯 Victoria: **{result['win']}%** | "
                 f"🤝 Empate: **{result['draw']}%** | "
                 f"❌ Derrota: **{result['lose']}%**"
@@ -1117,6 +1213,61 @@ def render_normal_war_tab(clan):
     styled_df = df.style.apply(highlight_incomplete, axis=1)
 
     st.dataframe(styled_df, use_container_width=True)
+    
+
+    # =====================================
+    # ⚔️ VENTAJA ESTRUCTURAL VS CLAN ENEMIGO (igual que CWL)
+    # =====================================
+    st.subheader("⚔️ Ventaja estructural vs clan enemigo")
+
+    def calculate_position_adv(full_war, summary):
+        # Ordena miembros por TH descendente (top del mapa)
+        our_members = sorted(full_war["clan"]["members"], key=lambda m: m.get("townhallLevel", 0), reverse=True)
+        opp_members = sorted(full_war["opponent"]["members"], key=lambda m: m.get("townhallLevel", 0), reverse=True)
+        
+        team_size = len(our_members)
+        
+        # Compara posición por posición (1vs1, 2vs2, etc.)
+        diff_sum = 0
+        for i in range(team_size):
+            our_th = our_members[i].get("townhallLevel", 0)
+            opp_th = opp_members[i].get("townhallLevel", 0)
+            diff_sum += our_th - opp_th
+        
+        avg_diff = round(diff_sum / team_size, 2)
+        
+        return [{
+            "Clan": summary['me_name'],
+            "avg_position_diff": avg_diff,
+            "top_avg_th": round(sum(m.get("townhallLevel", 0) for m in our_members[:team_size]) / team_size, 2)
+        },
+        {
+            "Clan": summary['opp_name'],
+            "avg_position_diff": avg_diff,
+            "top_avg_th": round(sum(m.get("townhallLevel", 0) for m in opp_members[:team_size]) / team_size, 2)
+        }]
+
+    position_adv = calculate_position_adv(full_war, summary)
+
+    # Tabla
+    df_pos = pd.DataFrame(position_adv)
+    st.dataframe(df_pos, use_container_width=True)
+
+    # Mensajes coloreados
+    for row in position_adv:
+        if row["Clan"] == summary['opp_name']:
+            diff = row["avg_position_diff"]
+            opp_name = summary['opp_name']
+            if diff > 0.3:
+                st.success(f"🟢 **Ventaja clara** vs {opp_name} (+{diff:+.2f} TH promedio en top {len(full_war['clan']['members'])})")
+            elif diff > 0:
+                st.success(f"🟢 **Ligera ventaja** vs {opp_name} (+{diff:+.2f} TH promedio)")
+            elif diff < -0.3:
+                st.error(f"🔴 **Desventaja clara** vs {opp_name} ({diff:+.2f} TH promedio)")
+            elif diff < 0:
+                st.error(f"🔴 **Ligera desventaja** vs {opp_name} ({diff:+.2f} TH promedio)")
+            else:
+                st.warning(f"🟡 **Guerra equilibrada** vs {opp_name} ({diff:+.2f} TH promedio)")
 
 
 
