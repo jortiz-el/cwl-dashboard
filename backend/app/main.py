@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 from .cwl_logic import get_league_group, get_war_summary, get_full_cwl_summary, get_clan_info, get_normal_war_summary
+from .donations_logic import get_clan_donations
+from fastapi.staticfiles import StaticFiles
+
 
 app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/health")
 def health():
@@ -26,4 +31,8 @@ def clan_info(clan_tag: str):
 @app.get("/war/normal-summary")
 def normal_summary(clan_tag: str):
     return get_normal_war_summary(clan_tag)
+
+@app.get("/clan/donations")
+def clan_donations(clan_tag: str):
+    return get_clan_donations(clan_tag)
 

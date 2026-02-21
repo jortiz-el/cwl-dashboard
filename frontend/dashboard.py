@@ -1,12 +1,15 @@
 import streamlit as st
-from datetime import datetime
 import pandas as pd
 import requests
 import os
 import re
-from collections import defaultdict
 import copy
 import random
+from datetime import datetime
+from collections import defaultdict
+from donations import render_donations_tab
+
+
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000") # local
 
@@ -143,18 +146,20 @@ def parse_time_left_to_minutes(time_left_str):
 
     return hours * 60 + minutes
 # 🎛️ Selector modo Guerra Normal o CWL
-st.sidebar.title("⚙️ Modo de Guerra")
-war_mode = st.sidebar.radio(
+st.sidebar.title("⚙️ Modo Dashboard")
+dashboard_mode  = st.sidebar.radio(
     "Selecciona tipo de guerra",
-    ["CWL", "Guerra Normal"]
+    ["CWL", "Guerra Normal", "Donaciones"]
 )
 
 st.set_page_config(page_title="War Dashboard", layout="wide")
 
-if war_mode == "CWL":
+if dashboard_mode  == "CWL":
     st.title("🏆 CWL Dashboard")
-else:
+elif dashboard_mode  == "Guerra Normal":
     st.title("⚔️ Guerra Normal Dashboard")
+elif dashboard_mode  == "Donaciones":
+    st.title("🪖 Donaciones Dashboard")
 
 
 if "modal_clan_tag" not in st.session_state:
@@ -164,7 +169,7 @@ if "modal_clan_tag" not in st.session_state:
 # 🎛️ Selector LIVE / ALL
 show_all_rounds = False
 
-if war_mode == "CWL":
+if dashboard_mode  == "CWL":
     mode = st.sidebar.radio(
         "Modo CWL",
         ["LIVE (solo activa / última)", "ALL (todas las rondas)"]
@@ -900,7 +905,9 @@ def render_normal_war_tab(clan):
                     st.write(f"📝 Descripción: {description}")
 
         st.markdown("---")
-    
+
+    team_size = summary.get('team_size') or len(full_war["clan"]["members"])
+    st.write(f"**⚔️ Guerra {team_size} vs {team_size}**")
     st.write(f"🛡️ Estado: **{war.get('state')}**")
     st.write(f"⏳ Tiempo restante: **{war.get('time_left')}**")
 
@@ -1118,36 +1125,28 @@ def render_normal_war_tab(clan):
     # =============================
     # SIMULACIÓN SI LA GUERRA SIGUE ABIERTA
     # =============================
-    if not display_result:
-        if war_state == "preparation":
-            st.info("🛠️ Guerra en preparación — simulación no disponible aún")
-        elif war_state == "inWar":           
-            with st.spinner("🔄 Simulando miles de escenarios posibles..."):
-                result = estimate_normal_war_probs(
-                    opp_bases=opp_bases,       # bases del rival (donde atacamos nosotros)
-                    me_bases=me_bases,         # nuestras bases (donde ataca el rival)
-                    my_att_ths=me_attackers,   # THs de nuestros ataques restantes
-                    opp_att_ths=opp_attackers, # THs de los ataques restantes del rival
-                    my_stars_current=my_stars_current,     
-                    opp_stars_current=opp_stars_current,   
-                    num_sims=8000             # puedes subir a 12000 si quieres más precisión                    
-                )
+    # if not display_result:
+    #     if war_state == "preparation":
+    #         st.info("🛠️ Guerra en preparación — simulación no disponible aún")
+    #     elif war_state == "inWar":           
+    #         with st.spinner("🔄 Simulando miles de escenarios posibles..."):
+    #             result = estimate_normal_war_probs(
+    #                 opp_bases=opp_bases,       # bases del rival (donde atacamos nosotros)
+    #                 me_bases=me_bases,         # nuestras bases (donde ataca el rival)
+    #                 my_att_ths=me_attackers,   # THs de nuestros ataques restantes
+    #                 opp_att_ths=opp_attackers, # THs de los ataques restantes del rival
+    #                 my_stars_current=my_stars_current,     
+    #                 opp_stars_current=opp_stars_current,   
+    #                 num_sims=8000             # puedes subir a 12000 si quieres más precisión                    
+    #             )
             
-            st.warning(
-                f"🟡 Guerra en curso (Simulación - no determina el resultado final de la guerra)\n"
-                f"🎯 Victoria: **{result['win']}%** | "
-                f"🤝 Empate: **{result['draw']}%** | "
-                f"❌ Derrota: **{result['lose']}%**"
-            )
-            
-            # Opcional: colorear según probabilidad dominante
-            if result['win'] > 65:
-                st.success(f"Alta probabilidad de victoria ({result['win']}%) — ¡a por todas!")
-            elif result['lose'] > 65:
-                st.error(f"Alta probabilidad de derrota ({result['lose']}%) — cuidado...")
-            elif result['draw'] > 50:
-                st.info("Guerra muy igualada, probable empate")
-
+    #         st.warning(
+    #             f"🟡 Guerra en curso (Simulación - no determina el resultado final de la guerra)\n"
+    #             f"🎯 Victoria: **{result['win']}%** | "
+    #             f"🤝 Empate: **{result['draw']}%** | "
+    #             f"❌ Derrota: **{result['lose']}%**"
+    #         )           
+    
 
 
     # ==========================
@@ -1277,10 +1276,12 @@ tabs = st.tabs(tab_labels)
 #for clan_tag in CLAN_TAGS:
 for i, clan in enumerate(selected_clans):
     with tabs[i]:
-        if war_mode == "CWL":
+        if dashboard_mode  == "CWL":
             render_cwl_tab(clan)
-        else:
+        elif dashboard_mode == "Guerra Normal":
             render_normal_war_tab(clan)
+        elif dashboard_mode == "Donaciones":
+            render_donations_tab(clan)
             
 
 st.caption(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
