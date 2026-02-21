@@ -20,7 +20,7 @@ def get_clan_donations(clan_tag):
             "received": m.get("donationsReceived", 0),
             "trophies": m.get("trophies", 0),
             "th": m.get("townHallLevel", 0),
-            "th_icon": f"{BACKEND_URL}/static/th/th{m.get('townHallLevel', 0)}.png"
+            "th_icon": f"https://www.clashofstats.com/images/game-data-sprites/2x/th-{m.get('townHallLevel', 0)}.png"
         })
 
     return {
